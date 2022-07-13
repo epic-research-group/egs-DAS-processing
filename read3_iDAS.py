@@ -43,8 +43,23 @@ def sliceIterator(lst,sliceLen):
     ------
     sliding window selection of DAS files for input into processing function    
     """
+    
     for i in range(len(lst) - sliceLen + 1):
-        yield lst[i:i + sliceLen]
+        files = lst[i:i + sliceLen]
+        # file1 , file2 , file3  = [*files] #unpack the 3 input files
+        # read the sampling frequencies and unpack
+        fs1,fs2,fs3 = \
+            [*[TdmsFile.read_metadata(f).properties['SamplingFrequency[Hz]'] for f in files]]
+        if not fs1 == fs2 == fs3:
+            print(f'Sampling Frequencies of input files are different: Files skipped')
+            
+            continue
+        elif fs1 == fs2 == fs3:
+            yield lst[i:i + sliceLen]
+            
+        
+        
+        
         
 def iDAS_timeAvg(files):
     """
@@ -76,11 +91,12 @@ def iDAS_timeAvg(files):
     # read the sampling frequencies and unpack
     fs1,fs2,fs3 = \
         [*[TdmsFile.read_metadata(f).properties['SamplingFrequency[Hz]'] for f in files]] 
-    if fs1 != fs2 != fs3:
-        pass
-        print(f'Sampling Frequencies of input files are different: File skipped')
+    # if not fs1 == fs2 == fs3:
+    #     print(f'Sampling Frequencies of input files are different: Files skipped')
+    #     pass
+        
 
-    elif fs1 == fs2 == fs3 == float(1000):
+    if fs1 == fs2 == fs3 == float(1000):
         # read them as dataframes with the built-in pandas method in nptdms
         tdms_file1 = TdmsFile(file1).as_dataframe().iloc[:,PDBchan]
         tdms_file2 = TdmsFile(file2).as_dataframe().iloc[:,PDBchan]
@@ -94,21 +110,22 @@ def iDAS_timeAvg(files):
         detrend_dat = detrend(three_files,axis=0,type='constant')
         detrend_dat = detrend(detrend_dat,axis=0,type='linear')
         # build the window
-        cos_win = cosine(len(three_files))
+        # cos_win = cosine(len(three_files))
         # employ the window/taper
-        win_dat = three_files.multiply(cos_win,axis=0)    
+        # win_dat = three_files.multiply(cos_win,axis=0)    
         del three_files
         gc.collect()
       
         # build the filter
-        Wn = 1/30 # set the low pass frequency ie 30 s here
-        sos = butter(2,Wn,output='sos',fs=fs1)
+        # Wn = 1/30 # set the low pass frequency ie 30 s here
+        # sos = butter(2,Wn,output='sos',fs=fs1)
         # view the filter response 
         # w,h = sosfreqz(sos,worN=512,fs=fs1)
         # db = 20*np.log10(np.maximum(np.abs(h), 1e-5))
         # apply the filter
-        filt_dat = sosfiltfilt(sos,win_dat)    
-        mid_dat = filt_dat[math.trunc(len(filt_dat)/2)]
+        # filt_dat = sosfiltfilt(sos,win_dat)    
+        # mid_dat = filt_dat[math.trunc(len(filt_dat)/2)]
+        mid_dat = detrend_dat[math.trunc(len(detrend_dat)/2)]
         return mid_dat
 
     elif fs1 == fs2 == fs3 == float(10000):
@@ -125,27 +142,25 @@ def iDAS_timeAvg(files):
         detrend_dat = detrend(three_files,axis=0,type='constant')
         detrend_dat = detrend(detrend_dat,axis=0,type='linear')
         # build the window
-        cos_win = cosine(len(three_files))
+        # cos_win = cosine(len(three_files))
         # employ the window/taper
-        win_dat = three_files.multiply(cos_win,axis=0)    
+        # win_dat = three_files.multiply(cos_win,axis=0)    
         del three_files
         gc.collect()
         # build the filter
-        Wn = 1/30 # set the low pass frequency ie 30 s here
-        sos = butter(2,Wn,output='sos',fs=fs1)
+        # Wn = 1/30 # set the low pass frequency ie 30 s here
+        # sos = butter(2,Wn,output='sos',fs=fs1)
         # apply the filter
-        filt_dat = sosfiltfilt(sos,win_dat)
-        mid_dat = filt_dat[math.trunc(len(filt_dat)/2)]
+        # filt_dat = sosfiltfilt(sos,win_dat)
+        # mid_dat = filt_dat[math.trunc(len(filt_dat)/2)]
+        mid_dat = detrend_dat[math.trunc(len(detrend_dat)/2)]
         return mid_dat
-
-    
-        
 
 #%% 
 # You have to cd into the directory where the data live bc mp.pool doesn't 
 # work via interactive interpreters
 start = time.time()
-dirpath = '/data1/parker/EGS_iDAS/20180524/'
+dirpath = '/data1/parker/EGS_iDAS/20180526/'
 os.chdir(dirpath)
 postfix='tdms'
 file_list = [f for f in sorted(os.listdir(dirpath)) if (postfix in f)]
@@ -159,14 +174,37 @@ proc = [pool.apply_async(iDAS_timeAvg,args=(files,)) for files in sliceIterator(
 results = [p.get() for p in proc]
 print(time.time()-start)
 results = pd.DataFrame(results)
-# filt_dat = pd.DataFrame(list(map(np.ravel, results))).transpose()
-# filt_dat = pd.DataFrame(list(map(np.ravel, results)))
-# fd = [name.split("_") for name in file_list]
-# fl = [fd[file][2].split(".") for file in range(len(fd))]
-# fl = [el[0] for el in fl]
-# dates = [datetime.strptime(d,'%y%m%d%H%M%S') for d in sorted(fl)]
-# xlims = mdates.date2num(dates)
-results.to_csv(r'/home/spri902/EGS_Collab/4850/results/maystim/processed_DAS/lpFilter/20180524.txt',\
+results.to_csv(r'/home/spri902/EGS_Collab/4850/results/maystim/processed_DAS/lpFilter/20180526_r.txt',\
                       header=True,index=None,sep=',',mode='a')
-#%%
 
+#%% Put separate dat files back together
+os.chdir('/home/spri902/EGS_Collab/4850/results/maystim/processed_DAS/lpFilter/')
+datFiles = sorted(os.listdir('/home/spri902/EGS_Collab/4850/results/maystim/processed_DAS/lpFilter'))
+df_raw = pd.concat((pd.read_csv(f,header=0,sep=',') for f in datFiles if f.endswith('r.txt')),axis=0)
+df_all = pd.concat((pd.read_csv(f,header=0,sep=',') for f in datFiles if f.endswith('n.txt')),axis=0)
+df_all.reset_index(drop=True,inplace=True)
+df_raw.reset_index(drop=True,inplace=True)
+# ndf = [df_all[col].str.split(' ',expand=True) for col in df_all.columns]
+# ndf = pd.concat(ndf,axis=1)
+# df_all.to_pickle('maystim22_26_combined_r')
+wn     = ['OT','OB','PST','PSB','PDB','PDT']
+nfile_list = sorted(os.walk('/data1/parker/EGS_iDAS'))
+nfile_list = nfile_list[1:]
+# file_list = file_list[1:]
+nfile_list = [group[2] for group in nfile_list]
+nfile_list = [item for sublist in nfile_list for item in sublist]
+# [file_list.append(f) for f in nfile_list]
+fd = [name.split("_") for name in nfile_list]
+fl = [fd[file][2].split(".") for file in range(len(fd))]
+fl = [el[0] for el in fl]
+dates = [datetime.strptime(d,'%y%m%d%H%M%S') for d in sorted(fl)]
+dates = dates[1:-1]
+xlims = mdates.date2num(dates)  
+chans=np.linspace(0,df_all.shape[0] - 1,df_all.shape[0]).astype(int)
+ch_bot = [396, 576, 837, 982, 1150, 1329]
+# remove_dates = pd.read_csv('/home/spri902/EGS_Collab/4850/results/maystim/processed_DAS/skipFlies.txt',sep=',',header=None)
+
+ind2rem = [90,91,1571,1572,3670,3671,4274,4275,6298,6299]
+for index in sorted(ind2rem,reverse=True):
+    del dates[index]
+dates = pd.DataFrame(dates)
